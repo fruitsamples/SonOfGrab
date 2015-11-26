@@ -1,17 +1,14 @@
 /*
-
-File: Controller.m
-
+    File: Controller.m
 Abstract: Handles UI interaction and retrieves window images.
-
-Version: 1.0
+ Version: 1.1
 
 Disclaimer: IMPORTANT:  This Apple software is supplied to you by Apple
-Inc. ("Apple") in consideration of your agreement to the
-following terms, and your use, installation, modification or
-redistribution of this Apple software constitutes acceptance of these
-terms.  If you do not agree with these terms, please do not use,
-install, modify or redistribute this Apple software.
+Inc. ("Apple") in consideration of your agreement to the following
+terms, and your use, installation, modification or redistribution of
+this Apple software constitutes acceptance of these terms.  If you do
+not agree with these terms, please do not use, install, modify or
+redistribute this Apple software.
 
 In consideration of your agreement to abide by the following terms, and
 subject to these terms, Apple grants you a personal, non-exclusive
@@ -20,14 +17,14 @@ license, under Apple's copyrights in this original Apple software (the
 Software, with or without modifications, in source and/or binary forms;
 provided that if you redistribute the Apple Software in its entirety and
 without modifications, you must retain this notice and the following
-text and disclaimers in all such redistributions of the Apple Software. 
-Neither the name, trademarks, service marks or logos of Apple Computer,
-Inc. may be used to endorse or promote products derived from the Apple
-Software without specific prior written permission from Apple.  Except
-as expressly stated in this notice, no other rights or licenses, express
-or implied, are granted by Apple herein, including but not limited to
-any patent rights that may be infringed by your derivative works or by
-other works in which the Apple Software may be incorporated.
+text and disclaimers in all such redistributions of the Apple Software.
+Neither the name, trademarks, service marks or logos of Apple Inc. may
+be used to endorse or promote products derived from the Apple Software
+without specific prior written permission from Apple.  Except as
+expressly stated in this notice, no other rights or licenses, express or
+implied, are granted by Apple herein, including but not limited to any
+patent rights that may be infringed by your derivative works or by other
+works in which the Apple Software may be incorporated.
 
 The Apple Software is provided by Apple on an "AS IS" basis.  APPLE
 MAKES NO WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION
@@ -44,7 +41,7 @@ AND WHETHER UNDER THEORY OF CONTRACT, TORT (INCLUDING NEGLIGENCE),
 STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
-Copyright © 2007 Apple Inc., All Rights Reserved
+Copyright (C) 2010 Apple Inc. All Rights Reserved.
 
 */
 
@@ -60,16 +57,19 @@ Copyright © 2007 Apple Inc., All Rights Reserved
 
 #if PROFILE_WINDOW_GRAB
 #define StopwatchStart() AbsoluteTime start = UpTime()
-#define StopwatchEnd(caption) do { Duration time = AbsoluteDeltaToDuration(UpTime(), start); double timef = time < 0 ? time / -1000000.0 : time / 1000.0; NSLog(@"%s Time Taken: %f seconds (%f FPS)", caption, timef, 1.0 / timef); } while(0)
+#define Profile(img) CFRelease(CGDataProviderCopyData(CGImageGetDataProvider(img)))
+#define StopwatchEnd(caption) do { Duration time = AbsoluteDeltaToDuration(UpTime(), start); double timef = time < 0 ? time / -1000000.0 : time / 1000.0; NSLog(@"%s Time Taken: %f seconds", caption, timef); } while(0)
 #else
 #define StopwatchStart()
+#define Profile(img)
 #define StopwatchEnd(caption)
 #endif
 
 #pragma mark Utilities
 
 // Simple helper to twiddle bits in a uint32_t. 
-uint32_t inline ChangeBits(uint32_t currentBits, uint32_t flagsToChange, BOOL setFlags)
+inline uint32_t ChangeBits(uint32_t currentBits, uint32_t flagsToChange, BOOL setFlags);
+inline uint32_t ChangeBits(uint32_t currentBits, uint32_t flagsToChange, BOOL setFlags)
 {
 	if(setFlags)
 	{	// Set Bits
@@ -118,6 +118,7 @@ NSString *kWindowIDKey = @"windowID";			// Window ID
 NSString *kWindowLevelKey = @"windowLevel";	// Window Level
 NSString *kWindowOrderKey = @"windowOrder";	// The overall front-to-back ordering of the windows as returned by the window server
 
+void WindowListApplierFunction(const void *inputDictionary, void *context);
 void WindowListApplierFunction(const void *inputDictionary, void *context)
 {
 	NSDictionary *entry = (NSDictionary*)inputDictionary;
@@ -130,7 +131,7 @@ void WindowListApplierFunction(const void *inputDictionary, void *context)
 	{
 		NSMutableDictionary *outputEntry = [NSMutableDictionary dictionary];
 		
-		// Grab the application name, but since it's optional so we need to check before we can use it.
+		// Grab the application name, but since it's optional we need to check before we can use it.
 		NSString *applicationName = [entry objectForKey:(id)kCGWindowOwnerName];
 		if(applicationName != NULL)
 		{
@@ -146,7 +147,7 @@ void WindowListApplierFunction(const void *inputDictionary, void *context)
 			[outputEntry setObject:nameAndPID forKey:kAppNameKey];
 		}
 		
-		// Grab the Window Bounds, it's a dictionary in the array, but we want to display it as strings
+		// Grab the Window Bounds, it's a dictionary in the array, but we want to display it as a string
 		CGRect bounds;
 		CGRectMakeWithDictionaryRepresentation((CFDictionaryRef)[entry objectForKey:(id)kCGWindowBounds], &bounds);
 		NSString *originString = [NSString stringWithFormat:@"%.0f/%.0f", bounds.origin.x, bounds.origin.y];
@@ -187,7 +188,7 @@ void WindowListApplierFunction(const void *inputDictionary, void *context)
 	[arrayController setContent:prunedWindowList];
 }
 
--(CFArrayRef)createWindowListFromSelection:(NSArray*)selection
+-(CFArrayRef)newWindowListFromSelection:(NSArray*)selection
 {
 	// Create a sort descriptor array. It consists of a single descriptor that sorts based on the kWindowOrderKey in ascending order
 	NSArray * sortDescriptors = [NSArray arrayWithObject:[[[NSSortDescriptor alloc] initWithKey:kWindowOrderKey ascending:YES] autorelease]];
@@ -217,6 +218,7 @@ void WindowListApplierFunction(const void *inputDictionary, void *context)
 	// Create an image from the passed in windowID with the single window option selected by the user.
 	StopwatchStart();
 	CGImageRef windowImage = CGWindowListCreateImage(imageBounds, singleWindowListOptions, windowID, imageOptions);
+	Profile(windowImage);
 	StopwatchEnd("Single Window");
 	[self setOutputImage:windowImage];
 	CGImageRelease(windowImage);
@@ -226,11 +228,12 @@ void WindowListApplierFunction(const void *inputDictionary, void *context)
 {
 	// Get the correctly sorted list of window IDs. This is a CFArrayRef because we need to put integers in the array
 	// instead of CFTypes or NSObjects.
-	CFArrayRef windowIDs = [self createWindowListFromSelection:selection];
+	CFArrayRef windowIDs = [self newWindowListFromSelection:selection];
 	
 	// And finally create the window image and set it as our output image.
 	StopwatchStart();
 	CGImageRef windowImage = CGWindowListCreateImageFromArray(imageBounds, windowIDs, imageOptions);
+	Profile(windowImage);
 	StopwatchEnd("Multiple Window");
 	CFRelease(windowIDs);
 	[self setOutputImage:windowImage];
@@ -243,6 +246,7 @@ void WindowListApplierFunction(const void *inputDictionary, void *context)
 	// enable all windows, turn off "Fit Image Tightly", and then select all windows in the list.
 	StopwatchStart();
 	CGImageRef screenShot = CGWindowListCreateImage(CGRectInfinite, kCGWindowListOptionOnScreenOnly, kCGNullWindowID, kCGWindowImageDefault);
+	Profile(screenShot);
 	StopwatchEnd("Screenshot");
 	[self setOutputImage:screenShot];
 	CGImageRelease(screenShot);
@@ -311,10 +315,14 @@ enum
 		case kSingleWindowBelowOnly:
 			option = kCGWindowListOptionOnScreenBelowWindow;
 			break;
+			
+		default:
+			break;
 	}
 	return option;
 }
 
+NSString *kvoContext = @"SonOfGrabContext";
 -(void)awakeFromNib
 {
 	// Set the initial list options to match the UI.
@@ -337,7 +345,7 @@ enum
 	imageBounds = ([imageTightFit intValue] == NSOnState) ? CGRectNull : CGRectInfinite;
 	
 	// Register for updates to the selection
-	[arrayController addObserver:self forKeyPath:@"selectionIndexes" options:0 context:nil];
+	[arrayController addObserver:self forKeyPath:@"selectionIndexes" options:0 context:&kvoContext];
 	
 	// Make sure the source list window is in front
 	[[outputView window] makeKeyAndOrderFront:self];
@@ -362,11 +370,19 @@ enum
 
 -(void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
+	if(context == &kvoContext)
+	{
 	// Find the "Single Window" options control and dynamically enable it based on how many items are selected.
 	[singleWindow setEnabled:[[arrayController selectedObjects] count] <= 1];
 	
 	// Selection has changed, so update the image
 	[self updateImageWithSelection];
+	}
+	else
+	{
+		[super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+	}
+
 }
 
 #pragma mark Control Actions
@@ -411,17 +427,20 @@ enum
 
 -(IBAction)updateSingleWindowOption:(id)sender
 {
+	#pragma unused(sender)
 	singleWindowListOptions = [self singleWindowOption];
 	[self updateImageWithSelection];
 }
 
 -(IBAction)grabScreenShot:(id)sender
 {
+	#pragma unused(sender)
 	[self createScreenShot];
 }
 
 -(IBAction)refreshWindowList:(id)sender
 {
+	#pragma unused(sender)
 	// Refreshing the window list combines updating the window list and updating the window image.
 	[self updateWindowList];
 	[self updateImageWithSelection];
